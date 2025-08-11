@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Pedidos</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- PDF & Image Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf-autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Chart.js para Gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, deleteDoc, onSnapshot, query, updateDoc, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        window.firebase = {
+            initializeApp,
+            auth: { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, EmailAuthProvider, reauthenticateWithCredential },
+            firestore: { getFirestore, collection, addDoc, doc, deleteDoc, onSnapshot, query, updateDoc, Timestamp },
+        };
+    </script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #009c3b;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="bg-yellow-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect, useMemo } = React;
+
+        // --- Firebase Configuration ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyA1GCFkFPM0DPtxeMm_5YVqjop2rh4tGGk",
+          authDomain: "jogo-do-milhao-a0283.firebaseapp.com",
+          projectId: "jogo-do-milhao-a0283",
+          storageBucket: "jogo-do-milhao-a0283.firebasestorage.app",
+          messagingSenderId: "974145500950",
+          appId: "1:974145500950:web:257e004db1088210960237"
+        };
+        
+        // --- Componentes Auxiliares ---
+        
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error: error };
+            }
+            componentDidCatch(error, errorInfo) {
+                console.error("Erro capturado:", error, errorInfo);
+            }
+            render() {
+                if (this.state.hasError) {
+                    return <div className="p-4 text-red-700 bg-red-100 rounded"><h2 className="font-bold">Algo deu errado.</h2><pre>{this.state.error?.toString()}</pre></div>;
+                }
+                return this.props.children;
+            }
+        }
+
+        const LoginScreen = ({ auth }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+                setIsLoading(true);
+                try {
+                    await window.firebase.auth.signInWithEmailAndPassword(auth, email, password);
+                } catch (err) {
+                    setError("Email ou senha inválidos.");
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="w-full flex items-center justify-center p-4">
+                    <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 animate-fade-in">
+                        <img src="https://brasnica.com.br/wp-content/uploads/2024/03/Logo-1024x316.webp" alt="Logo da Empresa" className="mx-auto mb-6 h-16" />
+                        <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Acesso ao Sistema</h1>
+                        <form onSubmit={handleLogin}>
+                            {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center">{error}</p>}
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-600 mb-2">Email</label>
+                                <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg" required />
+                            </div>
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-600 mb-2">Senha</label>
+                                <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg" required />
+                            </div>
+                            <button type="submit" disabled={isLoading} className="w-full bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-green-700 transition-colors disabled:bg-gray-400 flex items-center justify-center">
+                                {isLoading ? <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Entrar'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, title, children, password, setPassword, error, isLoading }) => {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-start justify-center z-50 animate-fade-in pt-20">
+                    <div className="bg-white rounded-2xl shadow-xl p-8 m-4 max-w-md w-full">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-4">{title}</h2>
+                        <div className="text-gray-600 mb-6">{children}</div>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-600 mb-2">Para confirmar, digite sua senha:</label>
+                            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg" required />
+                        </div>
+                        {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-center">{error}</p>}
+                        <div className="flex justify-end gap-4 mt-8">
+                            <button onClick={onClose} className="bg-gray-200 text-gray-800 font-bold py-2 px-6 rounded-lg hover:bg-gray-300">Cancelar</button>
+                            <button onClick={onConfirm} disabled={isLoading} className="bg-red-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-red-700 disabled:bg-gray-400 flex items-center justify-center w-48">
+                                {isLoading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Confirmar Exclusão'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const ProductManager = ({ db, onBack }) => {
+            const [products, setProducts] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [isFormOpen, setIsFormOpen] = useState(false);
+            const [editingProduct, setEditingProduct] = useState(null);
+            const [formData, setFormData] = useState({ name: '', code: '' });
+
+            const appId = firebaseConfig.appId;
+            const productsCollectionPath = ['artifacts', appId, 'public', 'data', 'products'];
+
+            useEffect(() => {
+                const { collection, query, onSnapshot } = window.firebase.firestore;
+                const q = query(collection(db, ...productsCollectionPath));
+                const unsubscribe = onSnapshot(q, snapshot => {
+                    setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setIsLoading(false);
+                });
+                return () => unsubscribe();
+            }, [db]);
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                if (name === 'code' && !/^\d*$/.test(value)) return;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                if (!formData.name || !formData.code) return;
+                const { doc, updateDoc, addDoc, collection } = window.firebase.firestore;
+                try {
+                    if (editingProduct) {
+                        await updateDoc(doc(db, ...productsCollectionPath, editingProduct.id), formData);
+                    } else {
+                        await addDoc(collection(db, ...productsCollectionPath), formData);
+                    }
+                    closeForm();
+                } catch (err) { alert("Falha ao salvar produto."); }
+            };
+
+            const handleEdit = (product) => {
+                setEditingProduct(product);
+                setFormData({ name: product.name, code: product.code });
+                setIsFormOpen(true);
+            };
+
+            const handleDelete = async (productId) => {
+                if (window.confirm("Tem certeza?")) {
+                    await window.firebase.firestore.deleteDoc(window.firebase.firestore.doc(db, ...productsCollectionPath, productId));
+                }
+            };
+            
+            const openForm = () => { setIsFormOpen(true); };
+            const closeForm = () => { setIsFormOpen(false); setEditingProduct(null); setFormData({ name: '', code: '' }); };
+
+            return (
+                <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    {isFormOpen && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+                                <h3 className="text-xl font-bold mb-4">{editingProduct ? 'Editar Produto' : 'Adicionar Novo Produto'}</h3>
+                                <form onSubmit={handleSave}>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-600 mb-1">Nome do Produto</label>
+                                        <input type="text" name="name" value={formData.name} onChange={handleInputChange} className="w-full p-2 border rounded" required />
+                                    </div>
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-medium text-gray-600 mb-1">Código (somente números)</label>
+                                        <input type="text" name="code" value={formData.code} onChange={handleInputChange} className="w-full p-2 border rounded" required pattern="\d*" />
+                                    </div>
+                                    <div className="flex justify-end gap-4">
+                                        <button type="button" onClick={closeForm} className="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded">Cancelar</button>
+                                        <button type="submit" className="bg-green-600 text-white font-bold py-2 px-4 rounded">Salvar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Gerenciar Produtos</h2>
+                        <button onClick={openForm} className="bg-green-600 text-white font-bold py-2 px-4 rounded-lg mb-4">Adicionar Produto</button>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full bg-white">
+                                <thead className="bg-gray-100">
+                                    <tr>
+                                        <th className="py-2 px-4 border-b">Nome</th>
+                                        <th className="py-2 px-4 border-b">Código</th>
+                                        <th className="py-2 px-4 border-b text-right">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {isLoading ? (
+                                        <tr><td colSpan="3" className="text-center py-4">Carregando...</td></tr>
+                                    ) : (
+                                        products.map(product => (
+                                            <tr key={product.id}>
+                                                <td className="py-2 px-4 border-b">{product.name}</td>
+                                                <td className="py-2 px-4 border-b">{product.code}</td>
+                                                <td className="py-2 px-4 border-b text-right">
+                                                    <button onClick={() => handleEdit(product)} className="text-blue-500 hover:underline mr-4">Editar</button>
+                                                    <button onClick={() => handleDelete(product.id)} className="text-red-500 hover:underline">Apagar</button>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div className="mt-8">
+                           <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg">Voltar</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const BoxTypeManager = ({ db, onBack }) => {
+            const [boxTypes, setBoxTypes] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [newBoxTypeName, setNewBoxTypeName] = useState('');
+
+            const appId = firebaseConfig.appId;
+            const boxTypesCollectionPath = ['artifacts', appId, 'public', 'data', 'boxTypes'];
+
+            useEffect(() => {
+                const { collection, query, onSnapshot } = window.firebase.firestore;
+                const q = query(collection(db, ...boxTypesCollectionPath));
+                const unsubscribe = onSnapshot(q, snapshot => {
+                    setBoxTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setIsLoading(false);
+                });
+                return () => unsubscribe();
+            }, [db]);
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                if (!newBoxTypeName.trim()) return;
+                await window.firebase.firestore.addDoc(window.firebase.firestore.collection(db, ...boxTypesCollectionPath), { name: newBoxTypeName });
+                setNewBoxTypeName('');
+            };
+
+            const handleDelete = async (boxTypeId) => {
+                if(window.confirm("Tem certeza?")) {
+                    await window.firebase.firestore.deleteDoc(window.firebase.firestore.doc(db, ...boxTypesCollectionPath, boxTypeId));
+                }
+            };
+            
+            return (
+                 <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Gerenciar Tipos de Caixa</h2>
+                        <form onSubmit={handleSave} className="flex gap-4 mb-6">
+                            <input 
+                                type="text" 
+                                value={newBoxTypeName} 
+                                onChange={(e) => setNewBoxTypeName(e.target.value)}
+                                placeholder="Nome do novo tipo de caixa"
+                                className="flex-grow p-2 border rounded"
+                            />
+                            <button type="submit" className="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Adicionar</button>
+                        </form>
+                        <div className="space-y-2">
+                            {isLoading ? <p>Carregando...</p> : (
+                                boxTypes.map(boxType => (
+                                    <div key={boxType.id} className="flex justify-between items-center p-2 border rounded">
+                                        <span>{boxType.name}</span>
+                                        <button onClick={() => handleDelete(boxType.id)} className="text-red-500 hover:underline">Apagar</button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="mt-8">
+                           <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg">Voltar</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const PackagingManager = ({ db, onBack }) => {
+            const [packagingTypes, setPackagingTypes] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+            const [newPackagingName, setNewPackagingName] = useState('');
+
+            const appId = firebaseConfig.appId;
+            const packagingCollectionPath = ['artifacts', appId, 'public', 'data', 'packagingTypes'];
+
+            useEffect(() => {
+                const { collection, query, onSnapshot } = window.firebase.firestore;
+                const q = query(collection(db, ...packagingCollectionPath));
+                const unsubscribe = onSnapshot(q, snapshot => {
+                    setPackagingTypes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    setIsLoading(false);
+                });
+                return () => unsubscribe();
+            }, [db]);
+
+            const handleSave = async (e) => {
+                e.preventDefault();
+                if (!newPackagingName.trim()) return;
+                await window.firebase.firestore.addDoc(window.firebase.firestore.collection(db, ...packagingCollectionPath), { name: newPackagingName });
+                setNewPackagingName('');
+            };
+
+            const handleDelete = async (packagingId) => {
+                if(window.confirm("Tem certeza?")) {
+                    await window.firebase.firestore.deleteDoc(window.firebase.firestore.doc(db, ...packagingCollectionPath, packagingId));
+                }
+            };
+            
+            return (
+                 <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <h2 className="text-2xl font-bold text-gray-800 mb-6">Gerenciar Embalagens</h2>
+                        <form onSubmit={handleSave} className="flex gap-4 mb-6">
+                            <input 
+                                type="text" 
+                                value={newPackagingName} 
+                                onChange={(e) => setNewPackagingName(e.target.value)}
+                                placeholder="Nome da nova embalagem"
+                                className="flex-grow p-2 border rounded"
+                            />
+                            <button type="submit" className="bg-green-600 text-white font-bold py-2 px-4 rounded-lg">Adicionar</button>
+                        </form>
+                        <div className="space-y-2">
+                            {isLoading ? <p>Carregando...</p> : (
+                                packagingTypes.map(pack => (
+                                    <div key={pack.id} className="flex justify-between items-center p-2 border rounded">
+                                        <span>{pack.name}</span>
+                                        <button onClick={() => handleDelete(pack.id)} className="text-red-500 hover:underline">Apagar</button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="mt-8">
+                           <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg">Voltar</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PurchaseOrderForm = ({ db, onSave, onCancel, existingOrder }) => {
+            const [step, setStep] = useState(1);
+            const [orderDetails, setOrderDetails] = useState(existingOrder?.details || { loadingDate: '', unloadingDate: '', supplier: '', vehiclePlate: '', driverName: '' });
+            const [products, setProducts] = useState(existingOrder?.products || []);
+            const [currentProduct, setCurrentProduct] = useState({ name: '', code: '', quantity: '', boxType: '', packaging: '' });
+            
+            const [masterProducts, setMasterProducts] = useState([]);
+            const [masterBoxTypes, setMasterBoxTypes] = useState([]);
+            const [masterPackaging, setMasterPackaging] = useState([]);
+            
+            const [productSearch, setProductSearch] = useState('');
+            const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+            const searchRef = useRef(null);
+
+            const appId = firebaseConfig.appId;
+
+            useEffect(() => {
+                const { collection, onSnapshot } = window.firebase.firestore;
+                const unsubProducts = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'products'), snapshot => {
+                    setMasterProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                });
+                const unsubBoxTypes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'boxTypes'), snapshot => {
+                    const types = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setMasterBoxTypes(types);
+                });
+                const unsubPackaging = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'packagingTypes'), snapshot => {
+                    const types = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setMasterPackaging(types);
+                });
+                return () => { unsubProducts(); unsubBoxTypes(); unsubPackaging(); };
+            }, [db]);
+
+            useEffect(() => {
+                if (!existingOrder) {
+                    setCurrentProduct(prev => ({
+                        ...prev,
+                        boxType: masterBoxTypes[0]?.name || '',
+                        packaging: masterPackaging[0]?.name || ''
+                    }));
+                }
+            }, [masterBoxTypes, masterPackaging, existingOrder]);
+
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (searchRef.current && !searchRef.current.contains(event.target)) {
+                        setIsDropdownOpen(false);
+                    }
+                };
+                document.addEventListener("mousedown", handleClickOutside);
+                return () => document.removeEventListener("mousedown", handleClickOutside);
+            }, [searchRef]);
+
+            const handleAddProduct = (e) => {
+                e.preventDefault();
+                if (currentProduct.name && Number(currentProduct.quantity) > 0) {
+                    setProducts(prev => [...prev, { ...currentProduct, id: Date.now() }]);
+                    setCurrentProduct({ name: '', code: '', quantity: '', boxType: masterBoxTypes[0]?.name || '', packaging: masterPackaging[0]?.name || '' });
+                    setProductSearch('');
+                }
+            };
+            
+            const handleProductSelect = (product) => {
+                setProductSearch(product.name);
+                setCurrentProduct(prev => ({ ...prev, name: product.name, code: product.code }));
+                setIsDropdownOpen(false);
+            };
+
+            const filteredProducts = masterProducts.filter(p =>
+                p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+                p.code.includes(productSearch)
+            );
+            
+            const handleDateKeyDown = (e, fieldName) => {
+                const today = new Date();
+                const tomorrow = new Date();
+                tomorrow.setDate(today.getDate() + 1);
+                const formatDate = (date) => date.toISOString().split('T')[0];
+
+                if (e.key.toLowerCase() === 'h') {
+                    e.preventDefault();
+                    setOrderDetails(prev => ({ ...prev, [fieldName]: formatDate(today) }));
+                } else if (e.key.toLowerCase() === 'a') {
+                    e.preventDefault();
+                    setOrderDetails(prev => ({ ...prev, [fieldName]: formatDate(tomorrow) }));
+                }
+            };
+            
+            const removeProduct = (id) => setProducts(prev => prev.filter(p => p.id !== id));
+            const handleSave = () => onSave({ id: existingOrder?.id, details: orderDetails, products });
+            const handleDetailsChange = (e) => setOrderDetails(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            
+            return (
+                <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        {step === 1 && (
+                            <div className="animate-fade-in">
+                                <h1 className="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-8">{existingOrder ? `Editando Pedido` : 'Novo Pedido: Informações'}</h1>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="md:col-span-1">
+                                        <label className="block text-sm font-medium text-gray-600 mb-2">Data de Carregamento (H=Hoje, A=Amanhã)</label>
+                                        <input type="date" name="loadingDate" value={orderDetails.loadingDate} onChange={handleDetailsChange} onKeyDown={(e) => handleDateKeyDown(e, 'loadingDate')} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg"/>
+                                    </div>
+                                    <div className="md:col-span-1">
+                                        <label className="block text-sm font-medium text-gray-600 mb-2">Data de Descarga (H=Hoje, A=Amanhã)</label>
+                                        <input type="date" name="unloadingDate" value={orderDetails.unloadingDate} onChange={handleDetailsChange} onKeyDown={(e) => handleDateKeyDown(e, 'unloadingDate')} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg"/>
+                                    </div>
+                                    {Object.entries({supplier: 'Fornecedor', vehiclePlate: 'Placa do Veículo', driverName: 'Nome do Motorista'}).map(([name, label]) =>(<div key={name} className={name === 'driverName' ? 'md:col-span-2' : ''}><label className="block text-sm font-medium text-gray-600 mb-2">{label}</label><input type='text' name={name} value={orderDetails[name]} onChange={handleDetailsChange} placeholder={label} className="w-full p-3 bg-yellow-50 border border-yellow-200 rounded-lg"/></div>))}
+                                </div>
+                                <div className="mt-8 flex justify-between"><button onClick={onCancel} className="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">Cancelar</button><button onClick={() => setStep(2)} disabled={!Object.values(orderDetails).every(v => v)} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-gray-400 hover:bg-green-700">Próximo</button></div>
+                            </div>
+                        )}
+                        {step === 2 && (
+                            <div className="animate-fade-in">
+                                <h1 className="text-3xl sm:text-4xl font-bold text-center text-gray-800 mb-8">Produtos</h1>
+                                <form onSubmit={handleAddProduct} className="bg-yellow-100 p-4 rounded-lg border border-dashed border-yellow-300 mb-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                                        <div className="lg:col-span-2 relative" ref={searchRef}>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Produto (digite nome ou código)</label>
+                                            <input 
+                                                type="text"
+                                                value={productSearch}
+                                                onChange={(e) => { setProductSearch(e.target.value); setIsDropdownOpen(true); }}
+                                                onFocus={() => setIsDropdownOpen(true)}
+                                                placeholder="Buscar produto..."
+                                                className="w-full p-2 bg-white border rounded-md"
+                                            />
+                                            {isDropdownOpen && filteredProducts.length > 0 && (
+                                                <ul className="absolute z-10 w-full bg-white border mt-1 rounded-md max-h-48 overflow-y-auto shadow-lg">
+                                                    {filteredProducts.map(p => (
+                                                        <li key={p.id} onClick={() => handleProductSelect(p)} className="p-2 hover:bg-yellow-100 cursor-pointer">
+                                                            {p.name} <span className="text-gray-500 text-sm">({p.code})</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Qtd.</label>
+                                            <input type="number" name="quantity" value={currentProduct.quantity} onChange={(e) => setCurrentProduct(prev => ({...prev, quantity: e.target.value}))} className="w-full p-2 bg-white border rounded-md"/>
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Caixa</label>
+                                            <select name="boxType" value={currentProduct.boxType} onChange={(e) => setCurrentProduct(prev => ({...prev, boxType: e.target.value}))} className="w-full p-2 bg-white border rounded-md">
+                                                {masterBoxTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="flex items-end gap-2">
+                                            <div className="flex-grow">
+                                                <label className="block text-sm font-medium text-gray-600 mb-1">Embalagem</label>
+                                                <select name="packaging" value={currentProduct.packaging} onChange={(e) => setCurrentProduct(prev => ({...prev, packaging: e.target.value}))} className="w-full p-2 bg-white border rounded-md">
+                                                    {masterPackaging.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <button type="submit" className="bg-teal-500 text-white p-2 rounded-full h-10 w-10 flex items-center justify-center flex-shrink-0 hover:bg-teal-600">&#43;</button>
+                                        </div>
+                                    </div>
+                                </form>
+                                <div className="space-y-3 max-h-60 overflow-y-auto pr-2">{products.map(p => (<div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-lg shadow-sm border"><div><p className="font-semibold">{p.name} ({p.code})</p><p className="text-sm text-gray-500">{p.quantity} x {p.boxType}</p></div><button onClick={() => removeProduct(p.id)} className="text-red-500 hover:text-red-700 font-bold px-2">X</button></div>))}</div>
+                                <div className="mt-8 flex justify-between"><button onClick={() => setStep(1)} className="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">Voltar</button><button onClick={handleSave} disabled={products.length === 0} className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg disabled:bg-gray-400 hover:bg-green-700">{existingOrder ? 'Atualizar Pedido' : 'Salvar Pedido'}</button></div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+        
+        const PreviewStep = ({ order, onBack }) => {
+            const previewRef = useRef(null);
+            const { details, products, orderNumber } = order;
+
+            const generatePdf = async () => {
+                if (!window.jspdf?.jsPDF?.autoTable) {
+                    alert("A biblioteca para gerar PDF (autoTable) não foi carregada. Tente novamente em alguns segundos.");
+                    return;
+                }
+                try {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF();
+                    
+                    doc.setFontSize(20).text(`Pedido de Compra #${orderNumber}`, 105, 25, { align: "center" });
+                    
+                    doc.setFontSize(12);
+                    doc.text(`Fornecedor: ${details.supplier}`, 14, 45);
+                    doc.text(`Motorista: ${details.driverName}`, 14, 51);
+                    doc.text(`Placa: ${details.vehiclePlate}`, 105, 45);
+                    
+                    const loadingDate = details.loadingDate ? new Date(details.loadingDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'N/A';
+                    const unloadingDate = details.unloadingDate ? new Date(details.unloadingDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'N/A';
+                    doc.text(`Carregamento: ${loadingDate}`, 14, 57);
+                    doc.text(`Descarga: ${unloadingDate}`, 105, 57);
+
+                    const tableColumn = ["Produto", "Qtd.", "Caixa", "Embalagem"];
+                    const tableRows = products.map(p => [p.name, p.quantity, p.boxType, p.packaging]);
+
+                    doc.autoTable({ head: [tableColumn], body: tableRows, startY: 70, theme: 'grid' });
+                    doc.save(`pedido_${orderNumber}.pdf`);
+                } catch (err) {
+                    console.error("Erro ao gerar PDF:", err);
+                    alert("Ocorreu um erro ao gerar o PDF. Verifique o console para detalhes.");
+                }
+            };
+
+            const generateImage = () => {
+                if (!window.html2canvas) {
+                    alert("A biblioteca para gerar imagem ainda está carregando. Por favor, aguarde um momento e tente novamente.");
+                    return;
+                }
+                try {
+                    const input = previewRef.current;
+                    html2canvas(input, { scale: 2, useCORS: true }).then((canvas) => {
+                        const link = document.createElement('a');
+                        link.href = canvas.toDataURL('image/png');
+                        link.download = `pedido_${orderNumber}.png`;
+                        link.click();
+                    });
+                } catch (err) {
+                    console.error("Erro ao gerar imagem:", err);
+                    alert("Ocorreu um erro ao gerar a imagem. Verifique o console para detalhes.");
+                }
+            };
+
+            return (
+                <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <div ref={previewRef} className="p-8 bg-white text-gray-800">
+                            <div className="flex justify-between items-start mb-6">
+                                <img src="https://brasnica.com.br/wp-content/uploads/2024/03/Logo-1024x316.webp" alt="Logo da Empresa" className="h-14" />
+                                <div className="text-right">
+                                    <h1 className="text-3xl font-bold">Pedido de Compra</h1>
+                                    <p className="text-lg font-semibold text-gray-600">#{orderNumber}</p>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-4 mb-8 p-4 border rounded-md bg-yellow-50">
+                                <div><strong className="block text-sm text-gray-500">Fornecedor:</strong> {details.supplier}</div>
+                                <div><strong className="block text-sm text-gray-500">Placa:</strong> {details.vehiclePlate}</div>
+                                <div><strong className="block text-sm text-gray-500">Motorista:</strong> {details.driverName}</div>
+                                <div><strong className="block text-sm text-gray-500">Carregamento:</strong> {details.loadingDate ? new Date(details.loadingDate + 'T00:00:00').toLocaleDateString('pt-BR') : ''}</div>
+                                <div><strong className="block text-sm text-gray-500">Descarga:</strong> {details.unloadingDate ? new Date(details.unloadingDate + 'T00:00:00').toLocaleDateString('pt-BR') : ''}</div>
+                            </div>
+                            <h3 className="text-lg font-semibold mb-3">Produtos</h3>
+                            <table className="w-full text-left">
+                                <thead><tr className="bg-yellow-100"><th className="p-3 text-sm font-semibold">Produto</th><th className="p-3 text-sm font-semibold text-center">Qtd.</th><th className="p-3 text-sm font-semibold">Caixa</th><th className="p-3 text-sm font-semibold">Embalagem</th></tr></thead>
+                                <tbody>{products.map(p => <tr key={p.id} className="border-b"><td className="p-3">{p.name}</td><td className="p-3 text-center">{p.quantity}</td><td className="p-3">{p.boxType}</td><td className="p-3">{p.packaging}</td></tr>)}</tbody>
+                            </table>
+                        </div>
+                        <div className="mt-8 flex flex-wrap justify-between gap-4">
+                            <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg">Voltar para a Lista</button>
+                            <div className="flex flex-wrap gap-4"><button onClick={generateImage} className="bg-teal-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-teal-600">Gerar Imagem</button><button onClick={generatePdf} className="bg-red-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-600">Gerar PDF</button></div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const AnalyticsDashboard = ({ db, orders, onBack }) => {
+            const [filters, setFilters] = useState({ startDate: '', endDate: '', product: 'all', boxType: 'all' });
+            const [masterData, setMasterData] = useState({ products: [], boxTypes: [] });
+            
+            const productChartRef = useRef(null);
+            const boxTypeChartRef = useRef(null);
+            const packagingChartRef = useRef(null);
+            const chartInstances = useRef({});
+
+            const appId = firebaseConfig.appId;
+
+            useEffect(() => {
+                const { collection, onSnapshot } = window.firebase.firestore;
+                const unsubProducts = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'products'), snapshot => {
+                    setMasterData(prev => ({ ...prev, products: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) }));
+                });
+                const unsubBoxTypes = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'boxTypes'), snapshot => {
+                    setMasterData(prev => ({ ...prev, boxTypes: snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) }));
+                });
+                return () => { unsubProducts(); unsubBoxTypes(); };
+            }, [db]);
+
+            const handleFilterChange = (e) => {
+                setFilters(prev => ({ ...prev, [e.target.name]: e.target.value }));
+            };
+
+            const filteredOrders = useMemo(() => {
+                let tempOrders = [...orders];
+                if (filters.startDate && filters.endDate) {
+                    const start = new Date(filters.startDate + 'T00:00:00');
+                    const end = new Date(filters.endDate + 'T23:59:59');
+                    tempOrders = tempOrders.filter(order => {
+                        const orderDate = order.createdAt;
+                        return orderDate >= start && orderDate <= end;
+                    });
+                }
+                return tempOrders;
+            }, [orders, filters.startDate, filters.endDate]);
+            
+            const analyticsData = useMemo(() => {
+                let flatProducts = filteredOrders.flatMap(order => order.products.map(p => ({...p, orderId: order.id})));
+
+                if (filters.product !== 'all') {
+                    flatProducts = flatProducts.filter(p => p.name === filters.product);
+                }
+                if (filters.boxType !== 'all') {
+                    flatProducts = flatProducts.filter(p => p.boxType === filters.boxType);
+                }
+
+                const productTotals = {};
+                const boxTypeTotals = {};
+                const packagingTotals = {};
+                let totalBoxes = 0;
+
+                flatProducts.forEach(product => {
+                    const quantity = Number(product.quantity) || 0;
+                    totalBoxes += quantity;
+                    
+                    productTotals[product.name] = (productTotals[product.name] || 0) + quantity;
+                    boxTypeTotals[product.boxType] = (boxTypeTotals[product.boxType] || 0) + quantity;
+                    packagingTotals[product.packaging] = (packagingTotals[product.packaging] || 0) + quantity;
+                });
+                
+                const topProductEntry = Object.entries(productTotals).sort((a,b) => b[1] - a[1])[0];
+
+                return {
+                    totalOrders: new Set(filteredOrders.map(order => order.id)).size,
+                    totalBoxes,
+                    topProduct: topProductEntry ? `${topProductEntry[0]} (${topProductEntry[1]} cx)` : 'N/A',
+                    productChart: {
+                        labels: Object.keys(filters.product === 'all' ? productTotals : boxTypeTotals),
+                        data: Object.values(filters.product === 'all' ? productTotals : boxTypeTotals)
+                    },
+                    boxTypeChart: {
+                        labels: Object.keys(boxTypeTotals),
+                        data: Object.values(boxTypeTotals)
+                    },
+                    packagingChart: {
+                        labels: Object.keys(packagingTotals),
+                        data: Object.values(packagingTotals)
+                    }
+                };
+
+            }, [filteredOrders, filters.product, filters.boxType]);
+
+            const updateChart = (ref, instanceKey, chartData, type, label) => {
+                if (chartInstances.current[instanceKey]) {
+                    chartInstances.current[instanceKey].destroy();
+                }
+                if (ref.current && window.Chart) {
+                    const ctx = ref.current.getContext('2d');
+                    chartInstances.current[instanceKey] = new window.Chart(ctx, {
+                        type: type,
+                        data: {
+                            labels: chartData.labels,
+                            datasets: [{
+                                label: label,
+                                data: chartData.data,
+                                backgroundColor: [
+                                    'rgba(0, 156, 59, 0.6)', 'rgba(255, 223, 0, 0.6)', 'rgba(0, 39, 118, 0.6)',
+                                    'rgba(255, 159, 64, 0.6)', 'rgba(75, 192, 192, 0.6)', 'rgba(153, 102, 255, 0.6)'
+                                ],
+                                borderColor: [
+                                    'rgba(0, 156, 59, 1)', 'rgba(255, 223, 0, 1)', 'rgba(0, 39, 118, 1)',
+                                    'rgba(255, 159, 64, 1)', 'rgba(75, 192, 192, 1)', 'rgba(153, 102, 255, 1)'
+                                ],
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                             plugins: { legend: { display: type === 'pie' } }
+                        }
+                    });
+                }
+            };
+            
+            useEffect(() => {
+                const barChartLabel = filters.product === 'all' ? 'Volume por Produto' : `Volume de ${filters.product} por Caixa`;
+                updateChart(productChartRef, 'productChart', analyticsData.productChart, 'bar', barChartLabel);
+                updateChart(boxTypeChartRef, 'boxTypeChart', analyticsData.boxTypeChart, 'pie', 'Volume por Tipo de Caixa');
+                updateChart(packagingChartRef, 'packagingChart', analyticsData.packagingChart, 'pie', 'Volume por Embalagem');
+            }, [analyticsData]);
+            
+            return (
+                <div className="w-full max-w-7xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard de Análise</h1>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 p-4 bg-yellow-50 rounded-lg">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Data de Início</label>
+                                <input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className="w-full p-2 border rounded-md" />
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Data de Fim</label>
+                                <input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className="w-full p-2 border rounded-md" />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Filtrar por Produto</label>
+                                <select name="product" value={filters.product} onChange={handleFilterChange} className="w-full p-2 border rounded-md bg-white">
+                                    <option value="all">Todos os Produtos</option>
+                                    {masterData.products.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+                                </select>
+                            </div>
+                             <div>
+                                <label className="block text-sm font-medium text-gray-600 mb-1">Filtrar por Caixa</label>
+                                <select name="boxType" value={filters.boxType} onChange={handleFilterChange} className="w-full p-2 border rounded-md bg-white">
+                                    <option value="all">Todos os Tipos</option>
+                                    {masterData.boxTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+                            <div className="bg-green-100 p-4 rounded-lg text-center"><p className="text-sm text-green-800 font-semibold">Total de Pedidos</p><p className="text-3xl font-bold text-green-900">{analyticsData.totalOrders}</p></div>
+                            <div className="bg-green-100 p-4 rounded-lg text-center"><p className="text-sm text-green-800 font-semibold">Total de Caixas</p><p className="text-3xl font-bold text-green-900">{analyticsData.totalBoxes}</p></div>
+                            <div className="bg-green-100 p-4 rounded-lg text-center"><p className="text-sm text-green-800 font-semibold">Produto Principal</p><p className="text-2xl font-bold text-green-900 truncate">{analyticsData.topProduct}</p></div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                            <div className="lg:col-span-2 bg-white p-4 rounded-lg shadow">
+                                <h3 className="font-bold text-center mb-2">{filters.product === 'all' ? 'Volume por Produto' : `Volume de ${filters.product} por Caixa`}</h3>
+                                <div className="relative h-80"><canvas ref={productChartRef}></canvas></div>
+                            </div>
+                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-8">
+                                <div className="bg-white p-4 rounded-lg shadow">
+                                    <h3 className="font-bold text-center mb-2">Volume por Tipo de Caixa</h3>
+                                    <div className="relative h-56"><canvas ref={boxTypeChartRef}></canvas></div>
+                                </div>
+                                <div className="bg-white p-4 rounded-lg shadow">
+                                    <h3 className="font-bold text-center mb-2">Volume por Embalagem</h3>
+                                    <div className="relative h-56"><canvas ref={packagingChartRef}></canvas></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-12 text-center">
+                            <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">Voltar para Pedidos</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        const AdminPanel = ({ db, onBack }) => {
+            const [adminView, setAdminView] = useState('main');
+
+            if (adminView === 'products') return <ProductManager db={db} onBack={() => setAdminView('main')} />;
+            if (adminView === 'boxTypes') return <BoxTypeManager db={db} onBack={() => setAdminView('main')} />;
+            if (adminView === 'packaging') return <PackagingManager db={db} onBack={() => setAdminView('main')} />;
+
+            return (
+                <div className="w-full max-w-4xl mx-auto animate-fade-in p-4">
+                    <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
+                        <h1 className="text-3xl font-bold text-center text-gray-800 mb-8">Painel de Administração</h1>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <button onClick={() => setAdminView('products')} className="text-left bg-yellow-50 p-6 rounded-lg shadow-md hover:shadow-xl transition-shadow border border-yellow-200">
+                                <h2 className="text-xl font-bold text-gray-700">Gerenciar Produtos</h2>
+                            </button>
+                            <button onClick={() => setAdminView('boxTypes')} className="text-left bg-yellow-50 p-6 rounded-lg shadow-md hover:shadow-xl transition-shadow border border-yellow-200">
+                                <h2 className="text-xl font-bold text-gray-700">Gerenciar Tipos de Caixa</h2>
+                            </button>
+                             <button onClick={() => setAdminView('packaging')} className="text-left bg-yellow-50 p-6 rounded-lg shadow-md hover:shadow-xl transition-shadow border border-yellow-200">
+                                <h2 className="text-xl font-bold text-gray-700">Gerenciar Embalagens</h2>
+                            </button>
+                        </div>
+                        <div className="mt-12 text-center">
+                            <button onClick={onBack} className="bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-lg hover:bg-gray-300">Voltar</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const PurchaseOrderManager = ({ auth, db, user }) => {
+            const [view, setView] = useState('dashboard');
+            const [orders, setOrders] = useState([]);
+            const [editingOrder, setEditingOrder] = useState(null);
+            const [selectedOrder, setSelectedOrder] = useState(null);
+            const [isLoading, setIsLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [isConfirmModalOpen, setConfirmModalOpen] = useState(false);
+            const [orderToDelete, setOrderToDelete] = useState(null);
+            const [passwordForDelete, setPasswordForDelete] = useState('');
+            const [deleteError, setDeleteError] = useState('');
+            const [isDeleting, setIsDeleting] = useState(false);
+            const [currentPage, setCurrentPage] = useState(1);
+
+            const ITEMS_PER_PAGE = 10;
+            const appId = firebaseConfig.appId;
+            const sharedOrdersCollectionPath = ['artifacts', appId, 'public', 'data', 'orders'];
+            const mailCollectionPath = ['mail'];
+
+            useEffect(() => {
+                const { collection, query, onSnapshot } = window.firebase.firestore;
+                const q = query(collection(db, ...sharedOrdersCollectionPath));
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    let fetchedOrders = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, createdAt: doc.data().createdAt.toDate() }));
+                    fetchedOrders.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+                    setOrders(fetchedOrders);
+                    setIsLoading(false);
+                }, (err) => {
+                    setError("Falha ao carregar pedidos.");
+                    setIsLoading(false);
+                });
+                return () => unsubscribe();
+            }, [db]);
+            
+            const totalPages = Math.ceil(orders.length / ITEMS_PER_PAGE);
+            const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+            const endIndex = startIndex + ITEMS_PER_PAGE;
+            const displayedOrders = orders.slice(startIndex, endIndex);
+
+            const handleSaveOrder = async (orderData) => {
+                const { updateDoc, doc, addDoc, collection, Timestamp } = window.firebase.firestore;
+                const { id, ...data } = orderData;
+                
+                try {
+                    if (id) {
+                        await updateDoc(doc(db, ...sharedOrdersCollectionPath, id), { ...data, lastUpdatedAt: Timestamp.now(), lastUpdatedBy: user.email });
+                    } else {
+                        const now = new Date();
+                        const orderNumber = `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}${now.getMinutes().toString().padStart(2, '0')}${now.getSeconds().toString().padStart(2, '0')}`;
+                        
+                        const dataToSave = { ...data, orderNumber, createdAt: Timestamp.now(), createdBy: user.email };
+                        await addDoc(collection(db, ...sharedOrdersCollectionPath), dataToSave);
+
+                        const recipients = [
+                            'danilo.machado@brasnica.com.br',
+                            'fatsamba@brasnica.com.br',
+                            'nfe.samba@brasnicaoline.com.br',
+                            'samba.rh@brasnica.com.br',
+                            'samba.qualdiade@brasnica.com.br'
+                        ];
+
+                        const productListHtml = data.products.map(p => 
+                            `<li>${p.quantity}x ${p.boxType} de ${p.name} (${p.packaging})</li>`
+                        ).join('');
+
+                        const emailContent = {
+                            to: recipients,
+                            message: {
+                                subject: `Novo Pedido de Compra #${orderNumber} - ${data.details.supplier} - Carregamento em ${new Date(data.details.loadingDate + 'T00:00:00').toLocaleDateString('pt-BR')}`,
+                                html: `
+                                    <h1>Novo Pedido de Compra Recebido #${orderNumber}</h1>
+                                    <p><strong>Fornecedor:</strong> ${data.details.supplier}</p>
+                                    <p><strong>Data de Carregamento:</strong> ${new Date(data.details.loadingDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                    <p><strong>Data de Descarga:</strong> ${new Date(data.details.unloadingDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                    <p><strong>Motorista:</strong> ${data.details.driverName}</p>
+                                    <p><strong>Placa do Veículo:</strong> ${data.details.vehiclePlate}</p>
+                                    <hr>
+                                    <h3>Produtos:</h3>
+                                    <ul>${productListHtml}</ul>
+                                `,
+                            },
+                        };
+                        
+                        await addDoc(collection(db, ...mailCollectionPath), emailContent);
+                    }
+                    setView('dashboard');
+                    setEditingOrder(null);
+                } catch (e) {
+                    console.error("Erro ao salvar pedido ou enviar e-mail:", e);
+                    setError("Não foi possível salvar o pedido.");
+                }
+            };
+            
+            const handleSignOut = () => window.firebase.auth.signOut(auth);
+            
+            const handleDeleteRequest = (order) => {
+                setOrderToDelete(order);
+                setPasswordForDelete('');
+                setDeleteError('');
+                setConfirmModalOpen(true); 
+            };
+            
+            const confirmDelete = async () => {
+                if (!passwordForDelete) {
+                    setDeleteError("A senha é obrigatória.");
+                    return;
+                }
+                setIsDeleting(true);
+                setDeleteError('');
+                if (orderToDelete) {
+                    try {
+                        const { EmailAuthProvider, reauthenticateWithCredential } = window.firebase.auth;
+                        const { doc, deleteDoc, addDoc, collection } = window.firebase.firestore;
+                        const credential = EmailAuthProvider.credential(user.email, passwordForDelete);
+                        await reauthenticateWithCredential(user, credential);
+                        
+                        const recipients = [
+                            'danilo.machado@brasnica.com.br',
+                            'fatsamba@brasnica.com.br',
+                            'nfe.samba@brasnicaonline.com.br',
+                            'samba.rh@brasnica.com.br',
+                            'samba.qualdiade@brasnica.com.br'
+                        ];
+
+                        const emailContent = {
+                            to: recipients,
+                            message: {
+                                subject: `Pedido Cancelado: #${orderToDelete.orderNumber}`,
+                                html: `
+                                    <h1>Pedido Cancelado</h1>
+                                    <p>O pedido <strong>#${orderToDelete.orderNumber}</strong> para o fornecedor <strong>${orderToDelete.details.supplier}</strong> foi cancelado.</p>
+                                    <p><strong>Data de Carregamento:</strong> ${new Date(orderToDelete.details.loadingDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                `,
+                            },
+                        };
+                        await addDoc(collection(db, ...mailCollectionPath), emailContent);
+
+                        await deleteDoc(doc(db, ...sharedOrdersCollectionPath, orderToDelete.id));
+                        
+                        setConfirmModalOpen(false);
+                        setOrderToDelete(null);
+                        setPasswordForDelete('');
+                    } catch (err) {
+                        console.error("Erro ao apagar o pedido:", err);
+                        if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+                            setDeleteError("Senha inválida. Tente novamente.");
+                        } else {
+                            setDeleteError("Ocorreu um erro ao verificar a senha.");
+                        }
+                    } finally {
+                        setIsDeleting(false);
+                    }
+                }
+            };
+            
+            if (view === 'form') return <PurchaseOrderForm db={db} onSave={handleSaveOrder} onCancel={() => { setView('dashboard'); setEditingOrder(null); }} existingOrder={editingOrder} />;
+            if (view === 'preview') return <PreviewStep order={selectedOrder} onBack={() => setView('dashboard')} />;
+            if (view === 'admin') return <AdminPanel db={db} onBack={() => setView('dashboard')} />;
+            if (view === 'analytics') return <AnalyticsDashboard db={db} orders={orders} onBack={() => setView('dashboard')} />;
+
+            return (
+                <div className="w-full p-4 sm:p-8 animate-fade-in">
+                    <DeleteConfirmModal 
+                        isOpen={isConfirmModalOpen} 
+                        onClose={() => setConfirmModalOpen(false)} 
+                        onConfirm={confirmDelete} 
+                        title="Confirmar Exclusão"
+                        password={passwordForDelete}
+                        setPassword={setPasswordForDelete}
+                        error={deleteError}
+                        isLoading={isDeleting}
+                    >
+                        <p>Tem certeza que deseja apagar este pedido? Esta ação não pode ser desfeita.</p>
+                    </DeleteConfirmModal>
+                    <div className="max-w-7xl mx-auto">
+                        <header className="flex flex-wrap justify-between items-center mb-8 gap-4">
+                            <div className="flex items-center gap-4">
+                                <img src="https://brasnica.com.br/wp-content/uploads/2024/03/Logo-1024x316.webp" alt="Logo da Empresa" className="h-12" />
+                                <div>
+                                    <h1 className="text-3xl font-bold text-gray-800">Painel de Pedidos</h1>
+                                    <p className="text-gray-500">Usuário: {user.email}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setView('analytics')} className="bg-blue-600 text-white font-bold p-2 rounded-lg hover:bg-blue-700" title="Dashboard de Análise">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                </button>
+                                <button onClick={() => setView('admin')} className="bg-gray-600 text-white font-bold p-2 rounded-lg hover:bg-gray-700" title="Administração">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                </button>
+                                <button onClick={handleSignOut} className="bg-red-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-600">Sair</button>
+                            </div>
+                        </header>
+                        <button onClick={() => { setEditingOrder(null); setView('form'); }} className="w-full sm:w-auto mb-6 bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-green-700 flex items-center justify-center gap-2"><span>&#43;</span> Criar Novo Pedido</button>
+                        <div className="bg-white rounded-2xl shadow-lg p-6">
+                           {isLoading && <div className="flex justify-center py-8"><div className="loading-spinner"></div></div>}
+                           {error && <div className="text-center py-8 text-red-600">{error}</div>}
+                           {!isLoading && !error && displayedOrders.length > 0 ? (
+                               <React.Fragment>
+                                   <ul className="space-y-4">
+                                       {displayedOrders.map(order => (
+                                           <li key={order.id} className="p-4 border rounded-lg flex flex-wrap justify-between items-center gap-4 hover:bg-yellow-50">
+                                               <div>
+                                                    <p className="font-semibold text-gray-800">Pedido #{order.orderNumber}</p>
+                                                    <p className="text-sm text-gray-600">Fornecedor: {order.details.supplier}</p>
+                                                    <p className="text-sm text-gray-600">Criado em: {order.createdAt.toLocaleDateString('pt-BR')} | <span className="font-semibold">Descarga:</span> {new Date(order.details.unloadingDate + 'T00:00:00').toLocaleDateString('pt-BR')}</p>
+                                               </div>
+                                               <div className="flex gap-2">
+                                                    <button onClick={() => { setEditingOrder(order); setView('form');}} className="bg-yellow-500 text-white py-1 px-3 rounded-md text-sm hover:bg-yellow-600">Editar</button>
+                                                    <button onClick={() => { setSelectedOrder(order); setView('preview'); }} className="bg-blue-500 text-white py-1 px-3 rounded-md text-sm hover:bg-blue-600">Visualizar</button>
+                                                    <button onClick={() => handleDeleteRequest(order)} className="bg-gray-200 text-gray-700 py-1 px-3 rounded-md text-sm hover:bg-gray-300">Apagar</button>
+                                               </div>
+                                           </li>
+                                       ))}
+                                   </ul>
+                                   {totalPages > 1 && (
+                                       <div className="flex justify-between items-center mt-6">
+                                           <button onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} disabled={currentPage === 1} className="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed">Anterior</button>
+                                           <span className="text-sm font-semibold">Página {currentPage} de {totalPages}</span>
+                                           <button onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} className="bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed">Próxima</button>
+                                       </div>
+                                   )}
+                               </React.Fragment>
+                           ) : null}
+                           {!isLoading && !error && orders.length === 0 && (<p className="text-center text-gray-500 py-8">Nenhum pedido salvo.</p>)}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Componente Principal ---
+        const AppContainer = () => {
+            const [firebaseState, setFirebaseState] = useState({ auth: null, db: null, user: null, isLoading: true, error: null });
+
+            useEffect(() => {
+                const initialize = async () => {
+                    if (!window.firebase?.initializeApp) {
+                        setTimeout(initialize, 100);
+                        return;
+                    }
+                    try {
+                        const app = window.firebase.initializeApp(firebaseConfig);
+                        const authInstance = window.firebase.auth.getAuth(app);
+                        const dbInstance = window.firebase.firestore.getFirestore(app);
+                        window.firebase.auth.onAuthStateChanged(authInstance, (currentUser) => {
+                            setFirebaseState({ auth: authInstance, db: dbInstance, user: currentUser, isLoading: false, error: null });
+                        });
+                    } catch (e) {
+                        setFirebaseState({ auth: null, db: null, user: null, isLoading: false, error: "Falha ao iniciar o aplicativo." });
+                    }
+                };
+                initialize();
+            }, []);
+
+            const { auth, db, user, isLoading, error } = firebaseState;
+            
+            return (
+                 <div className="flex flex-col min-h-screen bg-yellow-100">
+                     <main className="flex-grow flex items-center justify-center">
+                         {(() => {
+                             if (isLoading) return <div className="loading-spinner"></div>;
+                             if (error) return <div className="p-4"><div className="bg-red-100 text-red-700 p-4 rounded-lg text-center font-semibold">{error}</div></div>;
+                             if (user) return <PurchaseOrderManager auth={auth} db={db} user={user} />;
+                             return <LoginScreen auth={auth} />;
+                         })()}
+                     </main>
+                     <footer className="w-full text-center p-4 bg-yellow-400 text-gray-900 text-sm shadow-inner">
+                         <p className="font-bold">Sistema interno de compra equipe Brasnia - RJ</p>
+                         <p className="text-xs mt-1">
+                            Criado por <a href="https://wa.me/5521983576399" target="_blank" rel="noopener noreferrer" className="font-semibold text-green-800 hover:underline">Danilo Rossini</a>
+                         </p>
+                     </footer>
+                 </div>
+            );
+        };
+        
+        // Render the App
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
+        root.render(
+            <ErrorBoundary>
+                <AppContainer />
+            </ErrorBoundary>
+        );
+    </script>
+</body>
+</html>
